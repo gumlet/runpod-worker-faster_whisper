@@ -5,15 +5,12 @@ repository, with some modifications to make it work with the RP platform.
 """
 
 import gc
-import threading
-from concurrent.futures import (
-    ThreadPoolExecutor,
-)  # Still needed for transcribe potentially?
+
 import numpy as np
 
 from runpod.serverless.utils import rp_cuda
 
-from faster_whisper import WhisperModel
+from faster_whisper import WhisperModel, BatchedInferencePipeline
 from faster_whisper.utils import format_timestamp
 
 # Define available models (for validation)
@@ -35,9 +32,6 @@ class Predictor:
     def __init__(self):
         """Initializes the predictor with no models loaded."""
         self.models = {}
-        self.model_lock = (
-            threading.Lock()
-        )  # Lock for thread-safe model loading/unloading
 
     def setup(self):
         """No models are pre-loaded. Setup is minimal."""
@@ -101,8 +95,9 @@ class Predictor:
                         device="cuda" if rp_cuda.is_available() else "cpu",
                         compute_type="float16" if rp_cuda.is_available() else "int8",
                     )
-                    self.models[model_name] = loaded_model
-                    model = loaded_model
+                    batched_model = BatchedInferencePipeline(model=loaded_model)
+                    self.models[model_name] = batched_model
+                    model = batched_model
                     print(f"Model {model_name} loaded successfully.")
                 except Exception as e:
                     print(f"Error loading model {model_name}: {e}")
@@ -154,6 +149,7 @@ class Predictor:
                 max_initial_timestamp=1.0,
                 word_timestamps=word_timestamps,
                 vad_filter=enable_vad,
+                batch_size=16,
             )
         )
 
