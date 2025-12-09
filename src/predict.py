@@ -68,50 +68,49 @@ class Predictor:
                 f"Invalid model name: {model_name}. Available models are: {AVAILABLE_MODELS}"
             )
 
-        with self.model_lock:
-            model = None
-            if model_name not in self.models:
-                # Unload existing model if necessary
-                if self.models:
-                    existing_model_name = list(self.models.keys())[0]
-                    print(f"Unloading model: {existing_model_name}...")
-                    # Remove reference and clear dict
-                    del self.models[existing_model_name]
-                    self.models.clear()
-                    # Hint Python to release memory
-                    gc.collect()
-                    if rp_cuda.is_available():
-                        # If using PyTorch models, you might call torch.cuda.empty_cache()
-                        # FasterWhisper uses CTranslate2; explicit cache clearing might not be needed
-                        # but gc.collect() is generally helpful.
-                        pass
-                    print(f"Model {existing_model_name} unloaded.")
+        model = None
+        if model_name not in self.models:
+            # Unload existing model if necessary
+            if self.models:
+                existing_model_name = list(self.models.keys())[0]
+                print(f"Unloading model: {existing_model_name}...")
+                # Remove reference and clear dict
+                del self.models[existing_model_name]
+                self.models.clear()
+                # Hint Python to release memory
+                gc.collect()
+                if rp_cuda.is_available():
+                    # If using PyTorch models, you might call torch.cuda.empty_cache()
+                    # FasterWhisper uses CTranslate2; explicit cache clearing might not be needed
+                    # but gc.collect() is generally helpful.
+                    pass
+                print(f"Model {existing_model_name} unloaded.")
 
-                # Load the requested model
-                print(f"Loading model: {model_name}...")
-                try:
-                    loaded_model = WhisperModel(
-                        model_name,
-                        device="cuda" if rp_cuda.is_available() else "cpu",
-                        compute_type="float16" if rp_cuda.is_available() else "int8",
-                    )
-                    batched_model = BatchedInferencePipeline(model=loaded_model)
-                    self.models[model_name] = batched_model
-                    model = batched_model
-                    print(f"Model {model_name} loaded successfully.")
-                except Exception as e:
-                    print(f"Error loading model {model_name}: {e}")
-                    raise ValueError(f"Failed to load model {model_name}: {e}") from e
-            else:
-                # Model already loaded
-                model = self.models[model_name]
-                print(f"Using already loaded model: {model_name}")
-
-            # Ensure model is loaded before proceeding
-            if model is None:
-                raise RuntimeError(
-                    f"Model {model_name} could not be loaded or retrieved."
+            # Load the requested model
+            print(f"Loading model: {model_name}...")
+            try:
+                loaded_model = WhisperModel(
+                    model_name,
+                    device="cuda" if rp_cuda.is_available() else "cpu",
+                    compute_type="float16" if rp_cuda.is_available() else "int8",
                 )
+                batched_model = BatchedInferencePipeline(model=loaded_model)
+                self.models[model_name] = batched_model
+                model = batched_model
+                print(f"Model {model_name} loaded successfully.")
+            except Exception as e:
+                print(f"Error loading model {model_name}: {e}")
+                raise ValueError(f"Failed to load model {model_name}: {e}") from e
+        else:
+            # Model already loaded
+            model = self.models[model_name]
+            print(f"Using already loaded model: {model_name}")
+
+        # Ensure model is loaded before proceeding
+        if model is None:
+            raise RuntimeError(
+                f"Model {model_name} could not be loaded or retrieved."
+            )
 
         # Model is now loaded and ready, proceed with prediction (outside the lock?)
         # Consider if transcribe is thread-safe or if it should also be within the lock
@@ -127,32 +126,30 @@ class Predictor:
         # Note: FasterWhisper's transcribe might release the GIL, potentially allowing
         # other threads to acquire the model_lock if transcribe is lengthy.
         # If issues arise, the lock might need to encompass the transcribe call too.
-        segments, info = list(
-            model.transcribe(
-                str(audio),
-                language=language,
-                task="transcribe",
-                beam_size=beam_size,
-                best_of=best_of,
-                patience=patience,
-                length_penalty=length_penalty,
-                temperature=temperature,
-                compression_ratio_threshold=compression_ratio_threshold,
-                log_prob_threshold=logprob_threshold,
-                no_speech_threshold=no_speech_threshold,
-                condition_on_previous_text=condition_on_previous_text,
-                initial_prompt=initial_prompt,
-                prefix=None,
-                suppress_blank=True,
-                suppress_tokens=[-1],  # Might need conversion from string
-                without_timestamps=False,
-                max_initial_timestamp=1.0,
-                word_timestamps=word_timestamps,
-                vad_filter=enable_vad,
-                batch_size=16,
-            )
+        segments, info = model.transcribe(
+            str(audio),
+            language=language,
+            task="transcribe",
+            beam_size=beam_size,
+            best_of=best_of,
+            patience=patience,
+            length_penalty=length_penalty,
+            temperature=temperature,
+            compression_ratio_threshold=compression_ratio_threshold,
+            log_prob_threshold=logprob_threshold,
+            no_speech_threshold=no_speech_threshold,
+            condition_on_previous_text=condition_on_previous_text,
+            initial_prompt=initial_prompt,
+            prefix=None,
+            suppress_blank=True,
+            suppress_tokens=[-1],  # Might need conversion from string
+            without_timestamps=False,
+            max_initial_timestamp=1.0,
+            word_timestamps=word_timestamps,
+            vad_filter=enable_vad,
+            batch_size=16,
         )
-
+        
         segments = list(segments)
 
         # Format transcription
