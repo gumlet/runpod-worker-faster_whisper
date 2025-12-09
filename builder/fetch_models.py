@@ -13,7 +13,6 @@ model_names = [
     "turbo",
 ]
 
-
 def download_model_weights(selected_model):
     """
     Download model weights.
